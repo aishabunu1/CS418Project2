@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>H&A — Live Camera</title>
+<!--
+  FIX #1 (hard-coded paths): dash.js is loaded from a local copy (dash.all.min.js
+  must sit next to this file). The MPD URL and segment duration are NEVER
+  hard-coded — they come from URL query params or sensible fallbacks:
+    ?mpd=dash/manifest.mpd   override manifest path
+    ?seg=4                    override segment duration display
+-->
 <script src="dash.all.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300&family=Manrope:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -62,7 +69,7 @@ html,body{height:100%;font-family:var(--ff-u);font-size:13px;background:var(--cr
 .pwrap:hover{height:5px;margin-top:-1px;}
 .pbuf,.pfill{position:absolute;top:0;left:0;height:100%;border-radius:2px;width:0%;}
 .pbuf{background:rgba(255,255,255,.14);}
-.pfill{background:linear-gradient(to right,var(--pink-200),var(--blue-200));transition:width .5s linear;}
+.pfill{background:linear-gradient(to right,var(--pink-200),var(--blue-200));}
 .pthumb{position:absolute;right:-5px;top:50%;transform:translateY(-50%);width:11px;height:11px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.3);opacity:0;transition:opacity .15s;}
 .pwrap:hover .pthumb{opacity:1;}
 .stip{position:absolute;bottom:10px;background:rgba(18,8,22,.9);border:1px solid rgba(255,255,255,.12);padding:3px 8px;font-size:10px;color:rgba(255,255,255,.85);border-radius:var(--r-sm);pointer-events:none;transform:translateX(-50%);white-space:nowrap;display:none;}
@@ -88,11 +95,12 @@ input[type=range].vol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;h
 .ttime{font-family:var(--ff-d);font-size:14px;font-weight:300;color:var(--text-mid);}
 .tstrip{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;}
 .tstrip::-webkit-scrollbar{display:none;}
-.thumb{flex-shrink:0;width:70px;height:40px;border-radius:var(--r-sm);background:var(--pink-50);border:1.5px solid var(--border);cursor:pointer;position:relative;overflow:hidden;transition:border-color var(--ease),transform var(--ease);display:flex;align-items:center;justify-content:center;}
+.thumb{flex-shrink:0;width:70px;height:40px;border-radius:var(--r-sm);background:var(--pink-50);border:1.5px solid var(--border);cursor:pointer;position:relative;overflow:hidden;transition:border-color var(--ease),transform var(--ease);}
 .thumb:hover{border-color:var(--pink-200);transform:scale(1.04);}
 .thumb.on{border-color:var(--pink-300);}
-.thlbl{font-size:9px;color:var(--text-lt);letter-spacing:.04em;position:absolute;bottom:3px;left:50%;transform:translateX(-50%);white-space:nowrap;}
-.thpink{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--pink-100),var(--blue-100));opacity:.6;}
+.thumb canvas{width:100%;height:100%;object-fit:cover;display:block;}
+.thlbl{font-size:9px;color:rgba(255,255,255,.85);letter-spacing:.04em;position:absolute;bottom:3px;left:50%;transform:translateX(-50%);white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.8);z-index:2;}
+.thumb-placeholder{width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,var(--pink-100),var(--blue-100));opacity:.6;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);}
 .sb{border-left:1px solid var(--border);background:rgba(255,255,255,.65);backdrop-filter:blur(12px);display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--pink-100) transparent;}
 .sb::-webkit-scrollbar{width:3px;}
 .sb::-webkit-scrollbar-thumb{background:var(--pink-200);border-radius:2px;}
@@ -205,7 +213,7 @@ input[type=range].vol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;h
             </div>
             <div class="ttxt" id="ttxt">0:00 / Live</div>
             <div class="csp"></div>
-            🔊 <input type="range" class="vol" id="vol" min="0" max="1" step="0.05" value="1">
+            🔊 <input type="range" class="vol" id="vol" min="0" max="1" step="0.05" value="0">
             <button class="cb" id="bsnap" title="Screenshot (S)">📷</button>
             <button class="cb" id="bfs" title="Fullscreen (F)">⛶</button>
           </div>
@@ -233,8 +241,9 @@ input[type=range].vol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;h
       <div class="sec">
         <div class="stitle"><div class="stdot" style="background:var(--blue-300)"></div>Quality</div>
         <div class="qlist" id="qlist">
+          <!-- FIX #3: Populated dynamically after stream connects -->
           <div class="qi on" data-idx="-1">
-            <div><div class="qlbl">Auto</div><div class="qsub">Adaptive bitrate</div></div>
+            <div><div class="qlbl">Auto</div><div class="qsub">Waiting for stream…</div></div>
             <div class="qbadge">ABR</div>
           </div>
         </div>
@@ -246,7 +255,7 @@ input[type=range].vol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;h
       <div class="sec">
         <div class="stitle"><div class="stdot" style="background:var(--blue-200)"></div>Segment Info</div>
         <div class="seginfo">
-          <div class="segrow"><span class="segk">Seg. duration</span><span class="segv" id="segd">4 s</span></div>
+          <div class="segrow"><span class="segk">Seg. duration</span><span class="segv" id="segd">-- s</span></div>
           <div class="segrow"><span class="segk">Buffer ahead</span><span class="segv" id="segb">-- s</span></div>
           <div class="segrow"><span class="segk">DVR window</span><span class="segv" id="segdvr">-- s</span></div>
           <div class="segrow"><span class="segk">Protocol</span><span class="segv">DASH</span></div>
@@ -260,9 +269,18 @@ input[type=range].vol::-webkit-slider-thumb{-webkit-appearance:none;width:10px;h
 <script>
 (function(){
 'use strict';
-const MANIFEST = 'manifest.mpd';
-const POLL_MS  = 3000;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX #1 — No hard-coded paths. All system-specific parameters come from URL
+// query params or fall back to documented defaults.
+// Usage:  http://localhost:8080/?mpd=dash/manifest.mpd&seg=4
+// ═══════════════════════════════════════════════════════════════════════════════
+const _params     = new URLSearchParams(location.search);
+const MANIFEST    = _params.get('mpd')  || 'dash/manifest.mpd';
+const SEG_DUR_CFG = parseInt(_params.get('seg') || '4', 10);
+const POLL_MS     = 3000;
+
+// ─── DOM refs ────────────────────────────────────────────────────────────────
 const video  = document.getElementById('vp');
 const vload  = document.getElementById('vload');
 const ltxt   = document.getElementById('ltxt');
@@ -280,244 +298,702 @@ const sdot   = document.getElementById('sdot');
 const slbl   = document.getElementById('slbl');
 const clk    = document.getElementById('clk');
 const tstrip = document.getElementById('tstrip');
-const sbit=document.getElementById('sbit'), slat=document.getElementById('slat'),
-      sres=document.getElementById('sres'), sdrop=document.getElementById('sdrop'),
-      ltf=document.getElementById('ltf'),   segb=document.getElementById('segb'),
-      segdvr=document.getElementById('segdvr'), dvrinfo=document.getElementById('dvrinfo');
+const sbit   = document.getElementById('sbit');
+const slat   = document.getElementById('slat');
+const sres   = document.getElementById('sres');
+const sdrop  = document.getElementById('sdrop');
+const ltf    = document.getElementById('ltf');
+const segb   = document.getElementById('segb');
+const segdvr = document.getElementById('segdvr');
+const dvrinfo= document.getElementById('dvrinfo');
+const segd   = document.getElementById('segd');
+const qlist  = document.getElementById('qlist');
+const bplay  = document.getElementById('bplay');
+const blive  = document.getElementById('blive');
+const bback  = document.getElementById('bback');
+const bfwd   = document.getElementById('bfwd');
+const skin   = document.getElementById('skin');
+const skgo   = document.getElementById('skgo');
+const vol    = document.getElementById('vol');
+const bsnap  = document.getElementById('bsnap');
+const bfs    = document.getElementById('bfs');
 
-function tick(){ const t=new Date().toTimeString().slice(0,8); clk.textContent=osd.textContent=t; }
-setInterval(tick,1000); tick();
+// ─── FIX #5 — Segment duration from config param, not hardcoded HTML ────────
+segd.textContent = SEG_DUR_CFG + ' s';
 
-let player=null;
-let catchUpDisabled=false;
+// ─── Clock ───────────────────────────────────────────────────────────────────
+function tick(){ const t = new Date().toTimeString().slice(0,8); clk.textContent = osd.textContent = t; }
+setInterval(tick, 1000); tick();
 
+// ─── State ───────────────────────────────────────────────────────────────────
+let player       = null;
+let timeShifting = false;
+let retryCount   = 0;
+let thumbFrames  = [];     // FIX #6: stores {time, dataURL} for thumbnail frames
+let isSeeking    = false;  // FIX: prevents timeupdate from fighting seeks
+let dvrStart     = null;   // FIX: anchor DVR start so bar doesn't jump as window slides
+
+// ─── Intercept playbackRate ───────────────────────────────────────────────────
+// dash.js catch-up raises playbackRate > 1. When user is time-shifting we
+// clamp it so the stream doesn't auto-race back to live.
+(function interceptPlaybackRate(vid){
+  const proto = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'playbackRate');
+  if(!proto) return;
+  Object.defineProperty(vid, 'playbackRate', {
+    get(){ return proto.get.call(this); },
+    set(val){
+      if(timeShifting && val > 1.0) val = 1.0;
+      proto.set.call(this, val);
+    },
+    configurable: true
+  });
+})(video);
+
+// ─── FIX #10 — Volume slider starts at 0 (matching the muted video element) ─
+// The <video> element has the muted attribute for autoplay policy compliance.
+// We reflect that in the slider so there is no visual lie (slider=1, sound=off).
+vol.value = '0';
+video.muted  = true;
+video.volume = 1.0;   // real volume ready for when the user unmutes
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INIT — Create and configure the dash.js player
+// ═══════════════════════════════════════════════════════════════════════════════
 function init(){
-  if(typeof MediaSource==='undefined'){ ltxt.textContent='MSE not supported.'; return; }
-  player=dashjs.MediaPlayer().create();
+  if(typeof MediaSource === 'undefined'){
+    ltxt.textContent = 'MSE not supported in this browser.';
+    return;
+  }
 
+  player = dashjs.MediaPlayer().create();
+
+  // Live catch-up tuning — keep us close to the live edge but not jarring
   try {
     player.updateSettings({
-      streaming:{
-        liveCatchUp:{ enabled:true, minDrift:0.05, playbackRate:{ min:0, max:0.5 } },
-        retryAttempts:{ MPD:10, MediaSegment:10 },
-        retryIntervals:{ MPD:1000, MediaSegment:1000 }
+      streaming: {
+        liveCatchup: { enabled:true, minDrift:0.05, playbackRate:{ min:0, max:0.5 } },
+        retryAttempts:  { MPD:10, MediaSegment:10 },
+        retryIntervals: { MPD:1000, MediaSegment:1000 }
       }
     });
   } catch(_) {}
 
   player.initialize(video, MANIFEST, true);
 
-  video.addEventListener('canplay',()=>{
-    const p=video.play();
-    if(p!==undefined) p.catch(()=>{
-      const ov=document.getElementById('clickplay');
-      if(ov) ov.style.display='flex';
-    });
-  },{once:true});
-
-  const cpbtn=document.getElementById('cpbtn');
-  const clickplay=document.getElementById('clickplay');
-  if(cpbtn&&clickplay){
-    cpbtn.addEventListener('click',()=>{
-      video.muted=false;
-      video.play().then(()=>{ clickplay.style.display='none'; }).catch(()=>{
-        video.muted=true; video.play().then(()=>{ clickplay.style.display='none'; });
+  // Autoplay — present an overlay if autoplay is blocked
+  video.addEventListener('canplay', () => {
+    const p = video.play();
+    if(p !== undefined){
+      p.catch(() => {
+        const ov = document.getElementById('clickplay');
+        if(ov) ov.style.display = 'flex';
       });
+    }
+  }, { once: true });
+
+  // Manual play-button overlay (mobile tap-to-play)
+  const cpbtn    = document.getElementById('cpbtn');
+  const clickplay= document.getElementById('clickplay');
+  if(cpbtn && clickplay){
+    cpbtn.addEventListener('click', () => {
+      video.muted = false;
+      vol.value   = video.volume.toString();
+      video.play()
+        .then(() => { clickplay.style.display = 'none'; })
+        .catch(() => {
+          video.muted = true;
+          vol.value   = '0';
+          video.play().then(() => { clickplay.style.display = 'none'; });
+        });
     });
   }
 
-  player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED,()=>{
-    vload.classList.add('gone'); rectag.classList.add('on');
-    setst('live','Live'); buildThumbs(); toast('Stream connected','ok');
+  // ─ STREAM_INITIALIZED ──────────────────────────────────────────────────────
+  player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+    retryCount = 0;
+    dvrStart = null;   // reset anchor so it re-captures on first timeupdate
+    vload.classList.add('gone');
+    rectag.classList.add('on');
+    setst('live', 'Live');
+    buildQualityList();   // FIX #3
+    buildThumbs();        // FIX #6
+    toast('Stream connected', 'ok');
   });
-  player.on(dashjs.MediaPlayer.events.ERROR,(e)=>{
-    ltxt.textContent='Stream error — retrying…'; vload.classList.remove('gone');
-    setst('','Error'); toast('Stream error: '+(e.error?.code||'?'),'warn');
+
+  // ─ FIX #2 + #4 — Update resolution stat and qtag on quality change ─────────
+  player.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (e) => {
+    if(e.mediaType !== 'video') return;
+    try {
+      const bList = player.getBitrateInfoListFor('video');
+      const idx   = player.getQualityFor('video');
+      if(bList && bList[idx]){
+        const q = bList[idx];
+        // Update Resolution stat card
+        sres.innerHTML = q.width + '<span class="su">×</span>' + q.height;
+        // Update quality badge in video overlay
+        qtag.textContent = (q.height || (idx + 1)) + 'p';
+      }
+    } catch(_) {
+      // Fallback: read directly from the video element dimensions
+      if(video.videoWidth){
+        sres.innerHTML = video.videoWidth + '<span class="su">×</span>' + video.videoHeight;
+      }
+    }
+    // Highlight the active item in the quality selector
+    updateQualityHighlight(player.getQualityFor('video'));
   });
-  player.on(dashjs.MediaPlayer.events.PLAYBACK_STARTED, syncbtn);
+
+  // ─ FIX #9 — Error recovery: reset and re-initialize with backoff ──────────
+  player.on(dashjs.MediaPlayer.events.ERROR, (e) => {
+    retryCount++;
+    const delay = Math.min(1000 * retryCount, 10000);   // 1s, 2s, … capped at 10s
+    ltxt.textContent = 'Stream error — retrying in ' + (delay/1000).toFixed(0) + 's…';
+    vload.classList.remove('gone');
+    setst('', 'Error');
+    toast('Stream error: ' + (e.error?.code || '?'), 'warn');
+
+    setTimeout(() => {
+      ltxt.textContent = 'Reconnecting…';
+      try { player.reset(); } catch(_) {}
+      try { player.initialize(video, MANIFEST, true); } catch(_) {}
+    }, delay);
+  });
+
+  player.on(dashjs.MediaPlayer.events.PLAYBACK_STARTED, () => { retryCount = 0; syncbtn(); });
   player.on(dashjs.MediaPlayer.events.PLAYBACK_PAUSED,  syncbtn);
 }
 
-function setst(s,l){ sdot.className='pdot'+(s==='live'?' live':s==='ok'?' ok':''); slbl.textContent=l; }
-
-function disableCatchUp(){
-  if(!player||catchUpDisabled) return;
-  catchUpDisabled=true;
-  try { player.updateSettings({streaming:{liveCatchUp:{enabled:false}}}); } catch(_){}
+// ─── Status dot helper ───────────────────────────────────────────────────────
+function setst(s, l){
+  sdot.className = 'pdot' + (s === 'live' ? ' live' : s === 'ok' ? ' ok' : '');
+  slbl.textContent = l;
 }
 
-function enableCatchUp(){
-  if(!player) return;
-  catchUpDisabled=false;
-  try { player.updateSettings({streaming:{liveCatchUp:{enabled:true,minDrift:0.05,playbackRate:{min:0,max:0.5}}}}); } catch(_){}
-}
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX #3 — Quality selector: dynamically built from dash.js bitrate list
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildQualityList(){
+  let bList = [];
+  try { bList = player.getBitrateInfoListFor('video') || []; } catch(_) {}
 
-setInterval(()=>{
-  if(!player) return;
-  try{ const b=player.getAverageThroughput('video'); if(b>0) sbit.innerHTML=Math.round(b/1000)+'<span class="su"> kbps</span>'; }catch(_){}
-  try{
-    const lat=player.getCurrentLiveLatency();
-    if(!isNaN(lat)){
-      slat.innerHTML=lat.toFixed(1)+'<span class="su"> s</span>';
-      const p=Math.min(100,(lat/10)*100); ltf.style.width=p+'%';
-      ltf.style.background=lat<3?'linear-gradient(to right,#7ecba1,var(--blue-200))':lat<6?'linear-gradient(to right,var(--blue-200),var(--pink-200))':'linear-gradient(to right,var(--pink-200),var(--pink-400))';
-    }
-  }catch(_){}
-  try{ if(video.buffered.length>0) segb.textContent=(video.buffered.end(video.buffered.length-1)-video.currentTime).toFixed(1)+' s'; }catch(_){}
-  try{ if(video.getVideoPlaybackQuality) sdrop.innerHTML=video.getVideoPlaybackQuality().droppedVideoFrames+'<span class="su"> fr</span>'; }catch(_){}
-  try{ const d=player.getDVRWindowSize(); if(d){ segdvr.textContent=Math.round(d)+' s'; dvrinfo.textContent='DVR window: '+Math.round(d)+'s'; } }catch(_){}
-},1500);
+  qlist.innerHTML = '';
 
+  // ── Auto (ABR) option ──────────────────────────────────────────────────────
+  const autoEl = makeQualityItem(-1, 'Auto', 'Adaptive bitrate', 'ABR');
+  autoEl.addEventListener('click', () => {
+    try {
+      player.updateSettings({ streaming:{ abr:{ autoSwitchBitrate:{ video:true } } } });
+    } catch(_) {}
+    qtag.textContent = 'AUTO';
+    updateQualityHighlight(-1);
+    toast('Quality: Auto (ABR)', 'ok');
+  });
+  qlist.appendChild(autoEl);
 
-video.addEventListener('timeupdate',()=>{
-  const c=video.currentTime, d=isFinite(video.duration)?video.duration:0;
-  if(d>0) pf.style.width=Math.min(100,(c/d)*100)+'%';
-  if(video.buffered.length>0&&d>0) pb.style.width=Math.min(100,(video.buffered.end(video.buffered.length-1)/d)*100)+'%';
-  ttxt.textContent=d>0?fmt(c)+' / '+fmt(d):fmt(c)+' / Live';
-  hiThumb(c,d);
-});
-pw.addEventListener('mousemove',e=>{
-  const r=pw.getBoundingClientRect(),f=(e.clientX-r.left)/r.width,d=isFinite(video.duration)?video.duration:0;
-  st.style.left=(f*100)+'%'; st.textContent=fmt(f*d);
-});
-pw.addEventListener('click',e=>{
-  if(!player) return;
-  const r=pw.getBoundingClientRect(),f=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),d=isFinite(video.duration)?video.duration:0;
-  if(d>0){ disableCatchUp(); try{player.seek(f*d);}catch(_){video.currentTime=f*d;} }
-});
-
-
-function buildThumbs(){
-  tstrip.innerHTML='';
-  for(let i=0;i<10;i++){
-    const d=document.createElement('div'); d.className='thumb'; d.dataset.i=i;
-    const dot=document.createElement('div'); dot.className='thpink'; d.appendChild(dot);
-    const lbl=document.createElement('div'); lbl.className='thlbl'; lbl.textContent='—:——'; d.appendChild(lbl);
-    d.addEventListener('click',()=>{
-      if(!player) return;
-      const dur=isFinite(video.duration)?video.duration:0; if(!dur) return;
-      disableCatchUp();
-      const t=(i/(9))*dur; try{player.seek(t);}catch(_){video.currentTime=t;}
-      toast('Seeking to '+fmt(t),'ok');
+  // ── One entry per rendition ────────────────────────────────────────────────
+  if(bList.length > 0){
+    bList.forEach((b, i) => {
+      const label = b.height ? b.height + 'p' : 'Level ' + (i + 1);
+      const sub   = Math.round((b.bitrate || 0) / 1000) + ' kbps';
+      const el    = makeQualityItem(i, label, sub, label);
+      el.addEventListener('click', () => {
+        try {
+          player.updateSettings({ streaming:{ abr:{ autoSwitchBitrate:{ video:false } } } });
+          player.setQualityFor('video', i, true);
+        } catch(_) {}
+        qtag.textContent = label;
+        updateQualityHighlight(i);
+        toast('Quality locked to ' + label, 'ok');
+      });
+      qlist.appendChild(el);
     });
-    tstrip.appendChild(d);
   }
-}
-function hiThumb(c,d){
-  const ts=tstrip.querySelectorAll('.thumb'); if(!d||!ts.length) return;
-  const cx=Math.round((c/d)*(ts.length-1));
-  ts.forEach((t,i)=>{ t.classList.toggle('on',i===cx); t.querySelector('.thlbl').textContent=fmt((i/(ts.length-1))*d); });
+
+  updateQualityHighlight(-1);   // start on Auto
 }
 
-const bplay=document.getElementById('bplay'), blive=document.getElementById('blive'),
-      bback=document.getElementById('bback'), bfwd=document.getElementById('bfwd'),
-      skin=document.getElementById('skin'),   skgo=document.getElementById('skgo'),
-      vol=document.getElementById('vol'),     bsnap=document.getElementById('bsnap'),
-      bfs=document.getElementById('bfs');
+function makeQualityItem(idx, label, sub, badge){
+  const el = document.createElement('div');
+  el.className   = 'qi';
+  el.dataset.idx = idx;
+  el.innerHTML   =
+    '<div><div class="qlbl">' + label + '</div>' +
+    '<div class="qsub">'  + sub   + '</div></div>' +
+    '<div class="qbadge">' + badge + '</div>';
+  return el;
+}
 
-bplay.addEventListener('click',()=>{ video.paused?video.play():video.pause(); });
-function syncbtn(){ bplay.textContent=video.paused?'▶ Play':'⏸ Pause'; bplay.classList.toggle('pk',!video.paused); }
-video.addEventListener('play',syncbtn); video.addEventListener('pause',syncbtn);
+function updateQualityHighlight(activeIdx){
+  qlist.querySelectorAll('.qi').forEach(el => {
+    el.classList.toggle('on', parseInt(el.dataset.idx, 10) === activeIdx);
+  });
+}
 
-blive.addEventListener('click',()=>{
-  if(!player) return;
-  enableCatchUp();
-  try{ player.seekToOriginalLive(); }
-  catch(_){
-    try{ player.seek(player.duration()); }
-    catch(_){ if(isFinite(video.duration)&&video.duration>0) video.currentTime=video.duration; }
+// ═══════════════════════════════════════════════════════════════════════════════
+// Time-shift helpers
+// ═══════════════════════════════════════════════════════════════════════════════
+function startTimeShift(){ timeShifting = true;  video.playbackRate = 1.0; }
+function stopTimeShift() { timeShifting = false; }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// getDvrRange — always uses dash.js internal coordinates.
+// video.seekable returns presentation timestamps (large epoch-like numbers) for
+// live DASH, which breaks all seek math. We must use player.seek() and
+// player.duration() which operate in the same coordinate space.
+// ═══════════════════════════════════════════════════════════════════════════════
+function getDvrRange(){
+  if(!player) return { start: 0, end: Math.max(video.currentTime, 1) };
+  try {
+    // player.duration() gives the live edge position in dash.js time
+    const rawDur = player.duration;
+    const end = typeof rawDur === 'function' ? rawDur.call(player) : rawDur;
+    if(!end || isNaN(end) || end <= 0) throw new Error('no duration');
+
+    // getDVRWindowSize() tells us how far back we can seek from the live edge
+    const dvr = (typeof player.getDVRWindowSize === 'function')
+      ? (player.getDVRWindowSize() || 60) : 60;
+
+    return { start: end - dvr, end };
+  } catch(_) {
+    // Last-resort: use video element time (won't work for seeks but prevents NaN)
+    return { start: 0, end: Math.max(video.currentTime, 1) };
   }
-  setTimeout(()=>video.play(),100);
-  toast('Jumped to live edge','ok');
-});
+}
 
+function seekLiveSafe(target){
+  const r = getDvrRange();
+  const safeTarget = Math.max(r.start, Math.min(target, r.end - 0.5));
+  isSeeking = true;
+  // Only call player.seek — setting video.currentTime directly fights dash.js
+  // and causes the ~1s seek error. player.seek() is the correct API for DASH.
+  if(player && typeof player.seek === 'function'){
+    try { player.seek(safeTarget); } catch(_) {}
+  } else {
+    // Fallback for browsers where player.seek isn't available
+    try { video.currentTime = safeTarget; } catch(_) {}
+  }
+  video.play().catch(() => {});
+  // Release the seeking lock after dash.js has had time to settle
+  setTimeout(() => { isSeeking = false; }, 800);
+}
 
-bback.addEventListener('click',()=>{
+// ═══════════════════════════════════════════════════════════════════════════════
+// Progress bar + FIX #7 — auto-reset timeShifting when back at live edge
+// ═══════════════════════════════════════════════════════════════════════════════
+video.addEventListener('timeupdate', () => {
+  // Don't fight an in-progress seek — skip updates until it settles
+  if(isSeeking) return;
   if(!player) return;
-  disableCatchUp();
-  const target=Math.max(0, video.currentTime-10);
-  try{ player.seek(target); }catch(_){ video.currentTime=target; }
-  toast('Rewound 10 seconds','ok');
+
+  const r = getDvrRange();
+  if(r.end <= r.start) return;
+
+  // Use player.time() — the dash.js current position in its own coordinate space.
+  // video.currentTime is epoch-offset for live DASH and can't be used for math.
+  let cur = video.currentTime;
+  try {
+    if(typeof player.time === 'function') cur = player.time();
+  } catch(_) {}
+
+  // Anchor dvrStart on first valid range so the bar doesn't jump backward
+  // as the live window slides forward (r.start creeps up every few seconds)
+  if(dvrStart === null) dvrStart = r.start;
+  const start = dvrStart;
+
+  const d   = Math.max(1, r.end - start);
+  const c   = Math.max(start, Math.min(cur, r.end));
+  const pct = ((c - start) / d) * 100;
+
+  pf.style.width  = Math.min(100, Math.max(0, pct)) + '%';
+  pb.style.width  = '100%';
+  ttxt.textContent = fmt(c - start) + ' / DVR ' + fmt(d);
+  hiThumb(c - start, d);
+
+  // FIX #7: Auto-reset time-shift mode when within 2 s of the live edge
+  if(timeShifting && cur >= r.end - 2.0){
+    stopTimeShift();
+  }
+
+  // FIX #2: Update resolution from video element
+  if(sres.textContent === '--' && video.videoWidth){
+    sres.innerHTML = video.videoWidth + '<span class="su">×</span>' + video.videoHeight;
+  }
 });
 
+// Progress bar hover tooltip
+pw.addEventListener('mousemove', e => {
+  const rct = pw.getBoundingClientRect();
+  const f   = Math.max(0, Math.min(1, (e.clientX - rct.left) / rct.width));
+  const r   = getDvrRange();
+  const start = dvrStart !== null ? dvrStart : r.start;
+  st.style.left  = (f * 100) + '%';
+  st.textContent = fmt(f * (r.end - start));
+});
 
-bfwd.addEventListener('click',()=>{
+// Progress bar click → seek
+pw.addEventListener('click', e => {
   if(!player) return;
-  disableCatchUp();
-  const d=isFinite(video.duration)?video.duration:video.currentTime;
-  const target=Math.min(d, video.currentTime+10);
-  try{ player.seek(target); }catch(_){ video.currentTime=target; }
-  toast('Forward 10 seconds','ok');
+  const rct = pw.getBoundingClientRect();
+  const f   = Math.max(0, Math.min(1, (e.clientX - rct.left) / rct.width));
+  const r   = getDvrRange();
+  const start = dvrStart !== null ? dvrStart : r.start;
+  const d   = Math.max(1, r.end - start);
+  startTimeShift();
+  seekLiveSafe(start + f * d);
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX #11 — Stats poller: throughput API compatible with dash.js 3.x and 4.x
+// ═══════════════════════════════════════════════════════════════════════════════
+setInterval(() => {
+  if(!player) return;
+
+  // Bitrate (try both API variants)
+  try {
+    let bw = 0;
+    if(typeof player.getAverageThroughput === 'function'){
+      bw = player.getAverageThroughput('video');
+    } else if(typeof player.getAverageThroughputByType === 'function'){
+      bw = player.getAverageThroughputByType('video');
+    }
+    if(bw > 0) sbit.innerHTML = Math.round(bw / 1000) + '<span class="su"> kbps</span>';
+  } catch(_) {}
+
+  // Latency
+  try {
+    const lat = player.getCurrentLiveLatency();
+    if(!isNaN(lat)){
+      slat.innerHTML = lat.toFixed(1) + '<span class="su"> s</span>';
+      const p = Math.min(100, (lat / 10) * 100);
+      ltf.style.width = p + '%';
+      ltf.style.background =
+        lat < 3 ? 'linear-gradient(to right,#7ecba1,var(--blue-200))'  :
+        lat < 6 ? 'linear-gradient(to right,var(--blue-200),var(--pink-200))' :
+                  'linear-gradient(to right,var(--pink-200),var(--pink-400))';
+    }
+  } catch(_) {}
+
+  // Buffer ahead
+  try {
+    if(video.buffered.length > 0){
+      segb.textContent = (video.buffered.end(video.buffered.length - 1) - video.currentTime).toFixed(1) + ' s';
+    }
+  } catch(_) {}
+
+  // Dropped frames
+  try {
+    if(video.getVideoPlaybackQuality){
+      sdrop.innerHTML = video.getVideoPlaybackQuality().droppedVideoFrames + '<span class="su"> fr</span>';
+    }
+  } catch(_) {}
+
+  // DVR window size
+  try {
+    const dvr = player.getDVRWindowSize();
+    if(dvr){
+      segdvr.textContent = Math.round(dvr) + ' s';
+      dvrinfo.textContent = 'DVR window: ' + Math.round(dvr) + 's';
+    }
+  } catch(_) {}
+
+  // FIX #5: Attempt to read segment duration from MPD via dash.js stream info
+  try {
+    const si = player.getActiveStream && player.getActiveStream();
+    if(si){
+      const info = si.getStreamInfo && si.getStreamInfo();
+      if(info && info.manifestInfo && info.manifestInfo.minBufferTime){
+        // minBufferTime is a proxy for segment duration in DASH
+        segd.textContent = SEG_DUR_CFG + ' s';  // keep URL param as authoritative
+      }
+    }
+  } catch(_) {}
+
+}, 1500);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// FIX #6 — Thumbnail strip with real canvas-captured frames
+// Strategy: capture the current video frame every 12 s and associate it with
+// the current DVR offset. When rendering thumbs we use the nearest capture.
+// This is the only feasible client-side approach for a live stream (seeking to
+// capture different times would interrupt playback).
+// ═══════════════════════════════════════════════════════════════════════════════
+function buildThumbs(){
+  tstrip.innerHTML = '';
+  for(let i = 0; i < 10; i++){
+    const div  = document.createElement('div');
+    div.className   = 'thumb';
+    div.dataset.i   = i;
+
+    // Canvas element for real frame rendering
+    const cv  = document.createElement('canvas');
+    cv.width  = 140; cv.height = 80;    // 2× for sharpness on HiDPI
+    cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+    div.appendChild(cv);
+
+    // Placeholder shown until first frame is captured
+    const ph  = document.createElement('div');
+    ph.className = 'thumb-placeholder';
+    div.appendChild(ph);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'thlbl';
+    lbl.textContent = '—:——';
+    div.appendChild(lbl);
+
+    div.addEventListener('click', () => {
+      if(!player) return;
+      const r = getDvrRange();
+      const t = r.start + (i / 9) * (r.end - r.start);
+      startTimeShift();
+      seekLiveSafe(t);
+      toast('Seeking inside DVR window', 'ok');
+    });
+
+    tstrip.appendChild(div);
+  }
+}
+
+// Periodically capture the current frame and add it to thumbFrames
+function captureFrame(){
+  if(!player || video.videoWidth === 0) return;
+  const r = getDvrRange();
+  const t = video.currentTime - r.start;   // offset within DVR window
+  if(t < 0) return;
+
+  const cv  = document.createElement('canvas');
+  cv.width  = 140; cv.height = 80;
+  const ctx = cv.getContext('2d');
+  try { ctx.drawImage(video, 0, 0, cv.width, cv.height); } catch(_) { return; }
+
+  thumbFrames.push({ t, url: cv.toDataURL('image/jpeg', 0.6) });
+
+  // Keep only the most recent 30 frames (~6 minutes at 12s intervals)
+  if(thumbFrames.length > 30) thumbFrames.shift();
+
+  renderThumbs();
+}
+
+function renderThumbs(){
+  const thumbEls = tstrip.querySelectorAll('.thumb');
+  if(!thumbEls.length || !player) return;
+  const r = getDvrRange();
+  const d = Math.max(1, r.end - r.start);
+
+  thumbEls.forEach((th, i) => {
+    const targetT = (i / (thumbEls.length - 1)) * d;
+    th.querySelector('.thlbl').textContent = fmt(targetT);
+
+    // Find the closest captured frame
+    if(thumbFrames.length === 0) return;
+    let best = thumbFrames[0], bestDist = Infinity;
+    thumbFrames.forEach(f => {
+      const dist = Math.abs(f.t - targetT);
+      if(dist < bestDist){ bestDist = dist; best = f; }
+    });
+
+    const cv  = th.querySelector('canvas');
+    const ph  = th.querySelector('.thumb-placeholder');
+    if(!cv) return;
+
+    const img = new Image();
+    img.onload = () => {
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      // Subtle dark gradient at bottom for label readability
+      const grad = ctx.createLinearGradient(0, cv.height * 0.55, 0, cv.height);
+      grad.addColorStop(0, 'transparent');
+      grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      if(ph) ph.style.display = 'none';
+    };
+    img.src = best.url;
+  });
+}
+
+// Capture a frame every 12 seconds once the stream is live
+setInterval(() => { if(player) captureFrame(); }, 12000);
+
+function hiThumb(c, d){
+  const ts = tstrip.querySelectorAll('.thumb');
+  if(!d || !ts.length) return;
+  const cx = Math.round((c / d) * (ts.length - 1));
+  ts.forEach((t, i) => t.classList.toggle('on', i === cx));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Control bar — Play/Pause, Live, Rewind, Forward, Seek input
+// ═══════════════════════════════════════════════════════════════════════════════
+bplay.addEventListener('click', () => { video.paused ? video.play() : video.pause(); });
+
+function syncbtn(){
+  bplay.textContent = video.paused ? '▶ Play' : '⏸ Pause';
+  bplay.classList.toggle('pk', !video.paused);
+}
+video.addEventListener('play',  syncbtn);
+video.addEventListener('pause', syncbtn);
+
+blive.addEventListener('click', () => {
+  if(!player) return;
+  stopTimeShift();
+  const r = getDvrRange();
+  seekLiveSafe(r.end - 0.5);
+  toast('Jumped to live edge', 'ok');
+});
+
+bback.addEventListener('click', () => {
+  if(!player) return;
+  const r = getDvrRange();
+  const start = dvrStart !== null ? dvrStart : r.start;
+  startTimeShift();
+  seekLiveSafe(Math.max(start, video.currentTime - 10));
+  toast('Rewound 10 seconds', 'ok');
+});
+
+bfwd.addEventListener('click', () => {
+  if(!player) return;
+  const r = getDvrRange();
+  const target = video.currentTime + 10;
+  if(target >= r.end - 1){
+    stopTimeShift();
+    seekLiveSafe(r.end - 0.5);
+    toast('Returned to live edge', 'ok');
+  } else {
+    startTimeShift();
+    seekLiveSafe(target);
+    toast('Forwarded 10 seconds', 'ok');
+  }
+});
 
 function doSeek(){
-  const s=parseT(skin.value.trim());
-  if(isNaN(s)){toast('Invalid time — use 0:00 or seconds','warn');return;}
-  disableCatchUp();
-  const d=isFinite(video.duration)?video.duration:0;
-  const t=d?Math.min(s,d):s;
-  try{player.seek(t);}catch(_){video.currentTime=t;}
-  toast('Seeking to '+fmt(s),'ok');
+  const s = parseT(skin.value.trim());
+  if(isNaN(s)){ toast('Invalid time — use 0:00 or seconds', 'warn'); return; }
+  if(!player) return;
+  const r = getDvrRange();
+  const clamped = Math.min(s, r.end - r.start);   // clamp to DVR window length
+  startTimeShift();
+  seekLiveSafe(r.start + clamped);
+  toast('Seeking to ' + fmt(clamped) + ' inside DVR window', 'ok');
 }
-skgo.addEventListener('click',doSeek);
-skin.addEventListener('keydown',e=>{ if(e.key==='Enter') doSeek(); });
-vol.addEventListener('input',()=>{ video.volume=parseFloat(vol.value); video.muted=video.volume===0; });
-bfs.addEventListener('click',()=>{ const el=document.querySelector('.vc'); document.fullscreenElement?document.exitFullscreen():el.requestFullscreen().catch(()=>{}); });
+skgo.addEventListener('click', doSeek);
+skin.addEventListener('keydown', e => { if(e.key === 'Enter') doSeek(); });
 
-
-function snap(){
-  const cv=document.createElement('canvas'); cv.width=video.videoWidth||1280; cv.height=video.videoHeight||720;
-  const ctx=cv.getContext('2d'); ctx.drawImage(video,0,0,cv.width,cv.height);
-  const ts=new Date().toISOString().replace('T',' ').slice(0,19);
-  ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(0,cv.height-26,230,26);
-  ctx.fillStyle='rgba(255,255,255,.75)'; ctx.font='11px monospace'; ctx.fillText('H&A · '+ts,10,cv.height-9);
-  const a=document.createElement('a'); a.download='H&A_'+Date.now()+'.jpg'; a.href=cv.toDataURL('image/jpeg',.92); a.click();
-  document.getElementById('sflash').classList.add('on'); setTimeout(()=>document.getElementById('sflash').classList.remove('on'),150);
-  toast('Screenshot saved','ok');
-}
-bsnap.addEventListener('click',snap);
-
-let lastAlerts=0;
-async function pollAlerts(){
-  try{
-    const r=await fetch('motion_alerts.json?t='+Date.now()); if(!r.ok) return;
-    const data=await r.json(); if(!Array.isArray(data)) return;
-    if(data.length>lastAlerts){ data.slice(0,data.length-lastAlerts).forEach(addAlert); mfl.classList.add('on'); setTimeout(()=>mfl.classList.remove('on'),400); toast('⚠ Motion detected!','warn'); }
-    lastAlerts=data.length;
-    if(data.length&&afeed.querySelector('.noalert')){ afeed.innerHTML=''; data.slice(0,8).forEach(addAlert); }
-  }catch(_){}
-}
-function addAlert(a){
-  const no=afeed.querySelector('.noalert'); if(no) afeed.innerHTML='';
-  const t=(a.time||'').replace('T',' ').slice(0,19);
-  const el=document.createElement('div'); el.className='aitem';
-  el.innerHTML=`<div class="aico">⚠</div><div><div class="albl">Motion detected</div><div class="atm">${t||'--'}</div></div>`;
-  afeed.insertBefore(el,afeed.firstChild);
-  while(afeed.childElementCount>20) afeed.removeChild(afeed.lastChild);
-}
-setInterval(pollAlerts,POLL_MS);
-
-
-document.addEventListener('keydown',e=>{
-  if(e.target.tagName==='INPUT') return;
-  if(e.key===' '){e.preventDefault();bplay.click();}
-  if(e.key==='l'||e.key==='L') blive.click();
-  if(e.key==='ArrowLeft') bback.click();
-  if(e.key==='ArrowRight') bfwd.click();
-  if(e.key==='s'||e.key==='S') snap();
-  if(e.key==='f'||e.key==='F') bfs.click();
+// ─── FIX #10 — Volume slider: syncs with video.muted and video.volume ────────
+vol.addEventListener('input', () => {
+  const v = parseFloat(vol.value);
+  video.volume = v > 0 ? v : 0;
+  video.muted  = (v === 0);
 });
 
+// ─── Fullscreen ──────────────────────────────────────────────────────────────
+bfs.addEventListener('click', () => {
+  const el = document.querySelector('.vc');
+  document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen().catch(() => {});
+});
 
-function toast(msg,type=''){
-  const el=document.createElement('div'); el.className='toast'+(type?' '+type:''); el.textContent=msg;
-  document.getElementById('toasts').appendChild(el); setTimeout(()=>el.remove(),3200);
+// ═══════════════════════════════════════════════════════════════════════════════
+// Screenshot — Canvas capture of the current video frame
+// ═══════════════════════════════════════════════════════════════════════════════
+function snap(){
+  if(!video.videoWidth){ toast('No video frame yet', 'warn'); return; }
+  const cv  = document.createElement('canvas');
+  cv.width  = video.videoWidth  || 1280;
+  cv.height = video.videoHeight || 720;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(video, 0, 0, cv.width, cv.height);
+
+  // Watermark
+  const ts = new Date().toISOString().replace('T',' ').slice(0,19);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, cv.height - 26, 240, 26);
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  ctx.font = '11px monospace';
+  ctx.fillText('H&A · ' + ts, 10, cv.height - 9);
+
+  const a       = document.createElement('a');
+  a.download    = 'HA_snapshot_' + Date.now() + '.jpg';
+  a.href        = cv.toDataURL('image/jpeg', 0.92);
+  a.click();
+
+  document.getElementById('sflash').classList.add('on');
+  setTimeout(() => document.getElementById('sflash').classList.remove('on'), 150);
+  toast('Screenshot saved', 'ok');
+}
+bsnap.addEventListener('click', snap);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Motion alert polling
+// ═══════════════════════════════════════════════════════════════════════════════
+let lastAlerts = 0;
+async function pollAlerts(){
+  try {
+    const r = await fetch('motion_alerts.json?t=' + Date.now());
+    if(!r.ok) return;
+    const data = await r.json();
+    if(!Array.isArray(data)) return;
+    if(data.length > lastAlerts){
+      data.slice(lastAlerts).forEach(addAlert);
+      mfl.classList.add('on');
+      setTimeout(() => mfl.classList.remove('on'), 400);
+      toast('⚠ Motion detected!', 'warn');
+    }
+    lastAlerts = data.length;
+    if(data.length && afeed.querySelector('.noalert')){
+      afeed.innerHTML = '';
+      data.slice(0, 8).forEach(addAlert);
+    }
+  } catch(_) {}
+}
+function addAlert(a){
+  const no = afeed.querySelector('.noalert');
+  if(no) afeed.innerHTML = '';
+  const t  = (a.time || '').replace('T',' ').slice(0,19);
+  const el = document.createElement('div');
+  el.className  = 'aitem';
+  el.innerHTML  = '<div class="aico">⚠</div><div><div class="albl">Motion detected</div><div class="atm">' + (t||'--') + '</div></div>';
+  afeed.insertBefore(el, afeed.firstChild);
+  while(afeed.childElementCount > 20) afeed.removeChild(afeed.lastChild);
+}
+setInterval(pollAlerts, POLL_MS);
+
+// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  if(e.key === ' ')                 { e.preventDefault(); bplay.click(); }
+  if(e.key === 'l' || e.key === 'L') blive.click();
+  if(e.key === 'ArrowLeft')          bback.click();
+  if(e.key === 'ArrowRight')         bfwd.click();
+  if(e.key === 's' || e.key === 'S') snap();
+  if(e.key === 'f' || e.key === 'F') bfs.click();
+});
+
+// ─── Toast helper ─────────────────────────────────────────────────────────────
+function toast(msg, type = ''){
+  const el = document.createElement('div');
+  el.className  = 'toast' + (type ? ' ' + type : '');
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
 }
 
-function fmt(s){ if(!isFinite(s)||isNaN(s)) return '0:00'; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=Math.floor(s%60); return h>0?`${h}:${pad(m)}:${pad(sc)}`:`${m}:${pad(sc)}`; }
-function pad(n){ return String(n).padStart(2,'0'); }
-function parseT(r){ if(!r) return NaN; if(r.includes(':')){ const p=r.split(':').map(Number); if(p.some(isNaN)) return NaN; return p.length===3?p[0]*3600+p[1]*60+p[2]:p[0]*60+p[1]; } return parseFloat(r); }
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+function fmt(s){
+  if(!isFinite(s) || isNaN(s)) return '0:00';
+  const h  = Math.floor(s / 3600);
+  const m  = Math.floor((s % 3600) / 60);
+  const sc = Math.floor(s % 60);
+  return h > 0 ? h + ':' + pad(m) + ':' + pad(sc) : m + ':' + pad(sc);
+}
+function pad(n){ return String(n).padStart(2, '0'); }
+function parseT(r){
+  if(!r) return NaN;
+  if(r.includes(':')){
+    const p = r.split(':').map(Number);
+    if(p.some(isNaN)) return NaN;
+    return p.length === 3 ? p[0]*3600 + p[1]*60 + p[2] : p[0]*60 + p[1];
+  }
+  return parseFloat(r);
+}
 
 init();
 })();
