@@ -1,32 +1,36 @@
+#!/usr/bin/env bash
+# =============================================================================
+# stop_stream.sh — Stop the running FFmpeg live stream gracefully
+# =============================================================================
+
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../config.sh"
 
-PID_FILE="${LOG_DIR}/stream.pid"
+PID_FILE="${LOG_DIR}/ffmpeg.pid"
 
-if [[ ! -f "${PID_FILE}" ]]; then
-    echo "[stop] No PID file found. Is the stream running?"
-    
-    PIDS=$(pgrep -f "start_stream.sh\|ffmpeg.*manifest.mpd" || true)
-    if [[ -n "${PIDS}" ]]; then
-        echo "[stop] Found FFmpeg processes: ${PIDS}"
-        echo "[stop] Sending SIGINT..."
-        kill -INT ${PIDS} 2>/dev/null || true
-    fi
-    exit 0
-fi
-
-PID=$(cat "${PID_FILE}")
-if kill -0 "${PID}" 2>/dev/null; then
-    echo "[stop] Stopping stream (PID ${PID})..."
+if [[ -f "${PID_FILE}" ]]; then
+  PID="$(cat "${PID_FILE}")"
+  if kill -0 "${PID}" 2>/dev/null; then
+    echo "[stop] Sending SIGINT to FFmpeg PID ${PID}…"
     kill -INT "${PID}"
     sleep 2
+    # Force kill if still running
     if kill -0 "${PID}" 2>/dev/null; then
-        echo "[stop] Process still running, forcing..."
-        kill -KILL "${PID}"
+      echo "[stop] Force-killing PID ${PID}…"
+      kill -9 "${PID}" 2>/dev/null || true
     fi
-    echo "[stop] Stream stopped."
+    echo "[stop] FFmpeg stopped."
+  else
+    echo "[stop] PID ${PID} is not running."
+  fi
+  rm -f "${PID_FILE}"
 else
-    echo "[stop] Process ${PID} not found (already stopped?)."
+  echo "[stop] No PID file found. Attempting to kill all ffmpeg processes…"
+  pkill -INT -x ffmpeg 2>/dev/null || true
+  sleep 1
+  pkill -9  -x ffmpeg 2>/dev/null || true
 fi
 
-rm -f "${PID_FILE}"
+echo "[stop] Done."

@@ -1,126 +1,157 @@
+#!/usr/bin/env bash
+# =============================================================================
+# start_stream.sh — Start FFmpeg live DASH stream
+#
+# Usage:
+#   ./scripts/start_stream.sh          # uses SEGMENT_DURATION from config.sh
+#   ./scripts/start_stream.sh 2        # override: 2-second segments
+#   ./scripts/start_stream.sh 4        # override: 4-second segments
+#   ./scripts/start_stream.sh 6        # override: 6-second segments
+#
+# All system-specific parameters come from config.sh — never hard-coded here.
+# =============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/config.sh"
+source "${SCRIPT_DIR}/../config.sh"
 
-if [[ $# -ge 1 ]]; then
-    SEGMENT_DURATION="$1"
-    GOP_SIZE=$(( CAMERA_FRAMERATE * SEGMENT_DURATION ))
-    echo "[config] Segment duration overridden to ${SEGMENT_DURATION}s"
-fi
+# Allow segment duration override from command-line argument
+SEG="${1:-${SEGMENT_DURATION}}"
 
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}" "${SNAPSHOT_DIR}"
+# Recompute GOP for this segment duration
+GOP=$(( CAMERA_FRAMERATE * SEG ))
 
-echo "[setup] Cleaning old DASH segments in ${OUTPUT_DIR} ..."
-find "${OUTPUT_DIR}" -name "*.m4s" -o -name "*.mpd" -o -name "chunk-*.m4s" 2>/dev/null | \
-    xargs rm -f 2>/dev/null || true
+echo "======================================================"
+echo " Video Surveillance over IP — Starting Stream"
+echo " Camera  : ${CAMERA_DEVICE}"
+echo " Format  : ${CAMERA_FORMAT}"
+echo " Res     : ${CAMERA_RESOLUTION} @ ${CAMERA_FRAMERATE} fps"
+echo " Segment : ${SEG}s  (GOP=${GOP})"
+echo " Audio   : ${ENABLE_AUDIO}"
+echo " Output  : ${OUTPUT_DIR}/${MANIFEST_NAME}"
+echo "======================================================"
 
-OS="$(uname -s)"
-case "${OS}" in
-    Linux*)
-        VIDEO_INPUT_FLAGS=(-f v4l2 -framerate "${CAMERA_FRAMERATE}" -video_size "${CAMERA_RESOLUTION}")
-        AUDIO_INPUT_FLAGS=(-f alsa)
-        ;;
-    Darwin*)
-        CAMERA_FORMAT="avfoundation"
-        AUDIO_FORMAT="avfoundation"
-        VIDEO_INPUT_FLAGS=(-f avfoundation -framerate "${CAMERA_FRAMERATE}")
-        AUDIO_INPUT_FLAGS=(-f avfoundation)
-        ;;
-    MINGW*|CYGWIN*|MSYS*)
-        CAMERA_FORMAT="dshow"
-        AUDIO_FORMAT="dshow"
-        VIDEO_INPUT_FLAGS=(-f dshow -framerate "${CAMERA_FRAMERATE}")
-        AUDIO_INPUT_FLAGS=(-f dshow)
-        ;;
-    *)
-        echo "[error] Unsupported OS: ${OS}"
-        exit 1
-        ;;
-esac
+# Create output directories
+mkdir -p "${OUTPUT_DIR}" "${SNAPSHOT_DIR}" "${LOG_DIR}"
 
-echo "[stream] Starting DASH live stream"
-echo "  Camera  : ${CAMERA_DEVICE} (${CAMERA_FORMAT})"
-echo "  Audio   : $([ "${ENABLE_AUDIO}" = true ] && echo "${AUDIO_DEVICE}" || echo "disabled")"
-echo "  Segment : ${SEGMENT_DURATION}s  |  GOP: ${GOP_SIZE}  |  Window: ${WINDOW_SIZE}"
-echo "  Output  : ${OUTPUT_DIR}/${MANIFEST_NAME}"
-echo ""
+# Remove stale segments from a previous run
+find "${OUTPUT_DIR}" \( -name "*.m4s" -o -name "*.mpd" -o -name "*.mp4" \) \
+  -not -path "${SNAPSHOT_DIR}/*" \
+  -delete 2>/dev/null || true
 
-VIDEO_ENCODE_OPTS=(
-    -c:v libx264
-    -preset "${X264_PRESET}"
-    -tune "${X264_TUNE}"
-    -g "${GOP_SIZE}"
-    -keyint_min "${GOP_SIZE}"
-    -sc_threshold 0
-    -profile:v baseline     
-    -level 3.1
-    -pix_fmt yuv420p
+# ---------------------------------------------------------------------------
+# Build the FFmpeg command
+# ---------------------------------------------------------------------------
+# Input flags
+INPUT_FLAGS=(
+  -f "${CAMERA_FORMAT}"
+  -framerate "${CAMERA_FRAMERATE}"
+  -video_size "${CAMERA_RESOLUTION}"
+  -i "${CAMERA_DEVICE}"
 )
 
-ABR_MAPS=(
-    -map 0:v
-    "${VIDEO_ENCODE_OPTS[@]}"
-    -b:v:0 "${HIGH_BITRATE}" -maxrate:v:0 "${HIGH_MAXRATE}" -bufsize:v:0 "${HIGH_BUFSIZE}"
+# Audio input (appended only when ENABLE_AUDIO=true)
+AUDIO_FLAGS=()
+if [[ "${ENABLE_AUDIO}" == "true" ]]; then
+  AUDIO_FLAGS=(
+    -f "${AUDIO_FORMAT}"
+    -i "${AUDIO_DEVICE}"
+  )
+fi
+
+# Video encoding — three adaptive bitrate renditions (H.264 / AVC)
+VIDEO_ENC=(
+  # High rendition
+  -map 0:v -c:v:0 libx264
     -s:v:0 "${HIGH_RES}"
+    -b:v:0 "${HIGH_BITRATE}" -maxrate:v:0 "${HIGH_MAXRATE}" -bufsize:v:0 "${HIGH_BUFSIZE}"
 
-    -map 0:v
-    "${VIDEO_ENCODE_OPTS[@]}"
-    -b:v:1 "${MED_BITRATE}" -maxrate:v:1 "${MED_MAXRATE}" -bufsize:v:1 "${MED_BUFSIZE}"
+  # Medium rendition
+  -map 0:v -c:v:1 libx264
     -s:v:1 "${MED_RES}"
+    -b:v:1 "${MED_BITRATE}" -maxrate:v:1 "${MED_MAXRATE}" -bufsize:v:1 "${MED_BUFSIZE}"
 
-    -map 0:v
-    "${VIDEO_ENCODE_OPTS[@]}"
-    -b:v:2 "${LOW_BITRATE}" -maxrate:v:2 "${LOW_MAXRATE}" -bufsize:v:2 "${LOW_BUFSIZE}"
+  # Low rendition
+  -map 0:v -c:v:2 libx264
     -s:v:2 "${LOW_RES}"
+    -b:v:2 "${LOW_BITRATE}" -maxrate:v:2 "${LOW_MAXRATE}" -bufsize:v:2 "${LOW_BUFSIZE}"
 )
 
+# H.264 common settings (applied to all video streams via -x264-params or global flags)
+H264_FLAGS=(
+  -preset:v "${X264_PRESET}"
+  -tune:v   "${X264_TUNE}"
+  -profile:v baseline        # Widest device compatibility
+  -level:v   3.1
+  -pix_fmt   yuv420p         # Required by baseline profile
 
-if [[ "${ENABLE_AUDIO}" == true ]]; then
-    AUDIO_MAP=(-map 1:a -c:a aac -b:a "${AUDIO_BITRATE}" -ar "${AUDIO_SAMPLE_RATE}" -ac "${AUDIO_CHANNELS}")
-    AUDIO_INPUT=("${AUDIO_INPUT_FLAGS[@]}" -i "${AUDIO_DEVICE}")
-    ADAPTATION_SETS="id=0,streams=v id=1,streams=a"
-else
-    AUDIO_MAP=()
-    AUDIO_INPUT=()
-    ADAPTATION_SETS="id=0,streams=v"
+  # Keyframe / GOP settings — one keyframe per segment boundary (mandatory for DASH)
+  -g         "${GOP}"
+  -keyint_min "${GOP}"
+  -sc_threshold 0            # Disable scene-cut keyframes (breaks DASH segmentation)
+  -force_key_frames "expr:gte(t,n_forced*${SEG})"
+)
+
+# Audio encoding (AAC)
+AUDIO_ENC=()
+if [[ "${ENABLE_AUDIO}" == "true" ]]; then
+  AUDIO_ENC=(
+    -map 1:a -c:a aac
+    -ar "${AUDIO_SAMPLE_RATE}"
+    -ac "${AUDIO_CHANNELS}"
+    -b:a "${AUDIO_BITRATE}"
+  )
 fi
 
-
-DASH_OPTS=(
-    -f dash
-    -seg_duration "${SEGMENT_DURATION}"
-    -use_template 1
-    -use_timeline 1
-    -window_size "${WINDOW_SIZE}"
-    -extra_window_size "${EXTRA_WINDOW_SIZE}"
-    -remove_at_exit 0
-    -update_period "${SEGMENT_DURATION}"
-    -adaptation_sets "${ADAPTATION_SETS}"
-    -dash_segment_type mp4
-    -streaming 1
-    -ldash 1          
-    -target_latency "${SEGMENT_DURATION}"
+# DASH muxer settings
+DASH_FLAGS=(
+  -f dash
+  -seg_duration      "${SEG}"
+  -use_template      1           # SegmentTemplate — required for live DASH
+  -use_timeline      1           # SegmentTimeline — carries precise timing
+  -window_size       "${WINDOW_SIZE}"
+  -extra_window_size "${EXTRA_WINDOW_SIZE}"
+  -streaming         1           # Chunked output → lower latency
+  -ldash             1           # Low-latency DASH profile
+  -dash_segment_type mp4         # fMP4 segments (.m4s)
+  -remove_at_exit    0           # Keep segments on disk after exit
 )
 
+# Adaptation sets: separate video and audio streams
+if [[ "${ENABLE_AUDIO}" == "true" ]]; then
+  DASH_FLAGS+=( -adaptation_sets "id=0,streams=v id=1,streams=a" )
+else
+  DASH_FLAGS+=( -adaptation_sets "id=0,streams=v" )
+fi
 
-CMD=(
-    ffmpeg
-    -loglevel info
-    "${VIDEO_INPUT_FLAGS[@]}"
-    -i "${CAMERA_DEVICE}"
-    "${AUDIO_INPUT[@]}"
-    "${ABR_MAPS[@]}"
-    "${AUDIO_MAP[@]}"
-    "${DASH_OPTS[@]}"
-    "${OUTPUT_DIR}/${MANIFEST_NAME}"
-)
+# Output path (manifest file)
+MANIFEST_PATH="${OUTPUT_DIR}/${MANIFEST_NAME}"
 
-echo $$ > "${LOG_DIR}/stream.pid"
-
-echo "[stream] Running FFmpeg..."
-echo "[stream] Press Ctrl+C to stop."
+# ---------------------------------------------------------------------------
+# Run FFmpeg
+# ---------------------------------------------------------------------------
 echo ""
+echo "[stream] Starting FFmpeg…"
 
+ffmpeg \
+  "${INPUT_FLAGS[@]}" \
+  "${AUDIO_FLAGS[@]}" \
+  "${VIDEO_ENC[@]}"   \
+  "${H264_FLAGS[@]}"  \
+  "${AUDIO_ENC[@]}"   \
+  "${DASH_FLAGS[@]}"  \
+  "${MANIFEST_PATH}"  \
+  2>&1 | tee "${LOG_DIR}/ffmpeg_stream.log" &
 
-exec "${CMD[@]}" 2> >(tee "${LOG_DIR}/ffmpeg_$(date +%Y%m%d_%H%M%S).log" >&2)
+FFMPEG_PID=$!
+echo "${FFMPEG_PID}" > "${LOG_DIR}/ffmpeg.pid"
+echo "[stream] FFmpeg PID: ${FFMPEG_PID}"
+echo "[stream] Log: ${LOG_DIR}/ffmpeg_stream.log"
+echo "[stream] Manifest: ${MANIFEST_PATH}"
+echo ""
+echo " Open in browser → http://localhost:${HTTP_PORT}/?mpd=dash/manifest.mpd&seg=${SEG}"
+echo " Stop with: ./scripts/stop_stream.sh"
+
+wait "${FFMPEG_PID}" || true
+echo "[stream] FFmpeg exited."
