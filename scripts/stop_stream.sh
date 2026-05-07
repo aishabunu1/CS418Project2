@@ -1,8 +1,3 @@
-#!/usr/bin/env bash
-# =============================================================================
-# stop_stream.sh — Gracefully stop the FFmpeg DASH streaming process
-# =============================================================================
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/../config.sh"
 
@@ -10,7 +5,7 @@ PID_FILE="${LOG_DIR}/stream.pid"
 
 if [[ ! -f "${PID_FILE}" ]]; then
     echo "[stop] No PID file found. Is the stream running?"
-    # Try finding by process name
+    
     PIDS=$(pgrep -f "start_stream.sh\|ffmpeg.*manifest.mpd" || true)
     if [[ -n "${PIDS}" ]]; then
         echo "[stop] Found FFmpeg processes: ${PIDS}"
