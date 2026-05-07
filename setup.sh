@@ -1,3 +1,9 @@
+#!/usr/bin/env bash
+# =============================================================================
+# setup.sh — One-time setup: configure paths, prepare NGINX, verify FFmpeg
+# Run this once before starting the stream.
+# =============================================================================
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,7 +13,7 @@ echo "======================================================"
 echo " Video Surveillance over IP — Setup"
 echo "======================================================"
 
-
+# 1. Check dependencies
 echo ""
 echo "[check] Verifying dependencies..."
 
@@ -26,12 +32,13 @@ check_cmd nginx
 check_cmd python3
 [[ $MISSING -eq 1 ]] && echo "" && echo "[error] Missing dependencies above." && exit 1
 
-
+# 2. Verify FFmpeg has needed codecs
 echo ""
 echo "[check] Verifying FFmpeg codecs..."
 CODECS=$(ffmpeg -encoders 2>/dev/null | grep -E "libx264|aac" || true)
 echo "${CODECS:-  (could not verify — run ffmpeg -encoders manually)}"
 
+# 3. Patch nginx.conf with real project root
 echo ""
 echo "[setup] Configuring NGINX with project root: ${PROJECT_ROOT}"
 NGINX_CONF_SRC="${SCRIPT_DIR}/nginx/nginx.conf"
@@ -42,10 +49,10 @@ sed "s|REPLACE_WITH_PROJECT_ROOT|${PROJECT_ROOT}|g" \
 
 echo "  → ${NGINX_CONF_OUT}"
 
-
+# 4. Create log dirs
 mkdir -p "${LOG_DIR}" "${OUTPUT_DIR}" "${SNAPSHOT_DIR}"
 
-
+# 5. Show camera devices
 echo ""
 echo "[info] Available video devices:"
 case "$(uname -s)" in
@@ -54,7 +61,7 @@ case "$(uname -s)" in
     *)       echo "  (on Windows, run: ffmpeg -list_devices true -f dshow -i dummy)" ;;
 esac
 
-
+# 6. Print startup instructions
 echo ""
 echo "======================================================"
 echo " Setup complete! Quick start:"
