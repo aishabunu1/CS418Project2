@@ -5,7 +5,7 @@
 	xsi:schemaLocation="urn:mpeg:DASH:schema:MPD:2011 http://standards.iso.org/ittf/PubliclyAvailableStandards/MPEG-DASH_schema_files/DASH-MPD.xsd"
 	profiles="urn:mpeg:dash:profile:isoff-live:2011"
 	type="static"
-	mediaPresentationDuration="PT4M8.8S"
+	mediaPresentationDuration="PT7M40.8S"
 	maxSegmentDuration="PT4.0S"
 	minBufferTime="PT9.5S">
 	<ProgramInformation>
@@ -14,11 +14,11 @@
 	</ServiceDescription>
 	<Period id="0" start="PT0.0S">
 		<AdaptationSet id="0" contentType="video" startWithSAP="1" segmentAlignment="true" bitstreamSwitching="true" frameRate="10000000/333333" maxWidth="640" maxHeight="480" par="4:3">
-			<Representation id="0" mimeType="video/mp4" codecs="avc1.7a001e" bandwidth="572503" width="640" height="480" sar="1:1">
-				<SegmentTemplate timescale="10000000" initialization="init-stream$RepresentationID$.m4s" media="chunk-stream$RepresentationID$-$Number%05d$.m4s" startNumber="48">
+			<Representation id="0" mimeType="video/mp4" codecs="avc1.7a001e" bandwidth="2101781" width="640" height="480" sar="1:1">
+				<SegmentTemplate timescale="10000000" initialization="init-stream$RepresentationID$.m4s" media="chunk-stream$RepresentationID$-$Number%05d$.m4s" startNumber="88">
 					<SegmentTimeline>
-						<S t="2255997744" d="47999952" r="3" />
-						<S d="40666626" />
+						<S t="4175995824" d="47999952" r="8" />
+						<S d="999999" />
 					</SegmentTimeline>
 				</SegmentTemplate>
 			</Representation>
